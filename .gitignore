@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output — load dist/ into Chrome manually, don't commit it
+dist/
+
+# Kiro IDE files
+.kiro/
+
+# Editor
+.vscode/
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
