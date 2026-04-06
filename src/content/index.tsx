@@ -1,33 +1,5 @@
-import { createRoot } from 'react-dom/client';
-import { WidgetApp } from './WidgetApp';
-
-// Inject Widget UI
-const injectWidget = () => {
-  const container = document.createElement('div');
-  container.id = 'netspy-root';
-  
-  // Use shadow DOM to prevent CSS collision
-  const shadow = container.attachShadow({ mode: 'open' });
-  const rootDiv = document.createElement('div');
-  rootDiv.id = 'netspy-widget-container';
-  
-  // Inject global styles into shadow DOM
-  const styleLink = document.createElement('link');
-  styleLink.rel = 'stylesheet';
-  styleLink.href = chrome.runtime.getURL('assets/index.css'); // Ensure this name matches build output or generic css
-  
-  shadow.appendChild(styleLink);
-  shadow.appendChild(rootDiv);
-  document.body.appendChild(container);
-  
-  createRoot(rootDiv).render(<WidgetApp /> as any);
-};
-
-if (document.readyState === 'complete') {
-  injectWidget();
-} else {
-  window.addEventListener('load', injectWidget);
-}
+// Content script - Background tasks only (console capture, metadata extraction)
+// UI widget has been removed as per user request.
 
 // ── Console log capture ───────────────────────────────────────────────────────
 

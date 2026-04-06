@@ -1,19 +1,16 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { HeaderNav } from './HeaderNav';
-import { CustomModal } from './CustomModal';
+import { ModalProvider, useModal } from '../context/ModalContext';
 
-export const Shell = ({ children, activeTab, setActiveTab }: { children: React.ReactNode, activeTab: string, setActiveTab: (t: any) => void }) => {
-  const [modal, setModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
-
-  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
-    setModal({ isOpen: true, title, message, onConfirm });
-  };
+const ShellInner = ({ children, activeTab, setActiveTab }: { children: React.ReactNode, activeTab: string, setActiveTab: (t: any) => void }) => {
+  const { popConfirm } = useModal();
 
   const handleClearStorage = () => {
-    confirmAction(
-      "Purge Site Storage?",
-      "This will permanently delete all LocalStorage, SessionStorage, and Cookies for this origin. Proceed?",
-      async () => {
+    popConfirm({
+      title: "Purge Site Storage?",
+      message: "This will permanently delete all LocalStorage, SessionStorage, and Cookies for this origin. This action is irreversible.",
+      type: 'danger',
+      onConfirm: async () => {
         try {
           const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
           if(tabs[0]?.id) {
@@ -24,9 +21,8 @@ export const Shell = ({ children, activeTab, setActiveTab }: { children: React.R
         } catch (e) {
           console.error("Failed to query tabs:", e);
         }
-        setModal(null);
       }
-    );
+    });
   };
 
   const handleCaptureSnapshot = async () => {
@@ -45,18 +41,16 @@ export const Shell = ({ children, activeTab, setActiveTab }: { children: React.R
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      width: '100vw',
-      height: '100vh',
+      width: '100%',
+      height: '100%',
       background: 'var(--bg-deep)',
       color: 'var(--text-primary)',
       fontFamily: 'var(--font-sans)',
       overflow: 'hidden',
       position: 'relative'
     }}>
-      {/* Top Header Navigation */}
       <HeaderNav activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      {/* Main Content Area */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -67,7 +61,7 @@ export const Shell = ({ children, activeTab, setActiveTab }: { children: React.R
         <div style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '12px 12px 80px', /* Bottom padding for toolbar space */
+          padding: '12px 12px 80px',
           scrollBehavior: 'smooth',
           background: 'radial-gradient(circle at top left, rgba(79, 172, 254, 0.03) 0%, transparent 60%)',
           position: 'relative'
@@ -78,7 +72,6 @@ export const Shell = ({ children, activeTab, setActiveTab }: { children: React.R
         </div>
       </div>
 
-      {/* Toolkit Toolbar - More discrete */}
       <div style={{
         position: 'fixed',
         bottom: '12px',
@@ -106,16 +99,12 @@ export const Shell = ({ children, activeTab, setActiveTab }: { children: React.R
           onClick={handleClearStorage}
          >🧹</button>
       </div>
-
-      {modal && (
-        <CustomModal 
-          isOpen={modal.isOpen}
-          title={modal.title}
-          message={modal.message}
-          onConfirm={modal.onConfirm}
-          onCancel={() => setModal(null)}
-        />
-      )}
     </div>
   );
 };
+
+export const Shell = (props: any) => (
+  <ModalProvider>
+    <ShellInner {...props} />
+  </ModalProvider>
+);

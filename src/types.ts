@@ -68,6 +68,11 @@ export interface RequestRecord {
 export interface Preferences {
   globalMonitoringEnabled: boolean;
   disabledSites: string[];
+  autoCapture: boolean;
+  enableShield: boolean;
+  detectPII: boolean;
+  showNotifications: boolean;
+  darkMode: boolean;
 }
 
 export type SiteRiskScore = Record<string, number>;

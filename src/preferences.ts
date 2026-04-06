@@ -10,6 +10,11 @@ const RISK_SCORES_KEY = 'siteRiskScores';
 const DEFAULT_PREFERENCES: Preferences = {
   globalMonitoringEnabled: true,
   disabledSites: [],
+  autoCapture: true,
+  enableShield: true,
+  detectPII: true,
+  showNotifications: false,
+  darkMode: true,
 };
 
 // In-memory fallback store (used when chrome.storage.local is unavailable)

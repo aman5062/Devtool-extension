@@ -3,7 +3,7 @@
 
 import { detectPII } from '../piiDetector';
 import { computeRiskScore } from '../riskScorer';
-import { saveRecord, pruneOldRecords, getRecordsByOrigin, getAllOriginSummaries } from '../storage';
+import { saveRecord, pruneOldRecords, getRecordsByOrigin, getAllOriginSummaries, deleteRecordsByOrigin } from '../storage';
 import { getPreferences, updateSiteRiskScore } from '../preferences';
 import { shouldProcessRequest } from './filterLogic';
 import type { CapturedRequest, Header, RequestRecord } from '../types';
@@ -297,7 +297,7 @@ chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.Mess
       console.error('[background] Proxy storage error:', err);
       sendResponse({ records: [] });
     });
-    return true; // Keep channel open for async response
+    return true;
   }
 
   if (message.type === 'GET_ALL_RECORDS_PROXY') {
@@ -306,6 +306,17 @@ chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.Mess
     }).catch((err) => {
       console.error('[background] Proxy summarization error:', err);
       sendResponse({ summaries: [] });
+    });
+    return true;
+  }
+
+  if (message.type === 'CLEAR_SITE_RECORDS') {
+    const { origin } = message;
+    deleteRecordsByOrigin(origin).then(() => {
+      sendResponse({ ok: true });
+    }).catch((err) => {
+      console.error('[background] Proxy clear error:', err);
+      sendResponse({ ok: false });
     });
     return true;
   }

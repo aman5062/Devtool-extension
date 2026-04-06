@@ -1,17 +1,62 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useModal } from '../context/ModalContext';
+import { getPreferences, savePreferences } from '../preferences';
+import type { Preferences } from '../types';
+
+const DEFAULT_PREFS: Preferences = {
+  globalMonitoringEnabled: true,
+  disabledSites: [],
+  autoCapture: true,
+  enableShield: true,
+  detectPII: true,
+  showNotifications: false,
+  darkMode: true,
+};
 
 export const SettingsTab = () => {
-  const [prefs, setPrefs] = useState({
-    autoCapture: true,
-    enableShield: true,
-    detectPII: true,
-    showNotifications: false,
-    darkMode: true,
-  });
+  const { popConfirm, popAlert } = useModal();
+  const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const toggle = (field: keyof typeof prefs) => {
-    setPrefs({ ...prefs, [field]: !prefs[field] });
+  useEffect(() => {
+    const load = async () => {
+      const p = await getPreferences();
+      setPrefs(p);
+      setIsLoading(false);
+    };
+    load();
+  }, []);
+
+  const toggle = (field: keyof Preferences) => {
+    if (typeof prefs[field] === 'boolean') {
+        const next = { ...prefs, [field]: !prefs[field] };
+        setPrefs(next as any);
+        savePreferences(next as any); // Save on toggle for best UX
+    }
   };
+
+  const handleSave = async () => {
+    await savePreferences(prefs);
+    popAlert('Saved', 'Your preferences have been updated and synced.');
+  };
+
+  const handleReset = () => {
+    popConfirm({
+      title: 'Factory Reset?',
+      message: 'This will clear all local extension preferences and captured data. This cannot be undone.',
+      type: 'danger',
+      confirmLabel: 'Reset Everything',
+      onConfirm: async () => {
+        await savePreferences(DEFAULT_PREFS);
+        setPrefs(DEFAULT_PREFS);
+        popAlert('Success', 'Extension data has been purged successfully.');
+      }
+    }); 
+  };
+
+  if (isLoading) {
+      return <div style={{ padding: '40px', textAlign: 'center' }}>Loading preferences...</div>;
+  }
 
   const menuItems = [
     { id: 'autoCapture', label: 'Auto-capture Network', desc: 'Automatically store network requests for analysis.', icon: '🛰️' },
@@ -45,7 +90,7 @@ export const SettingsTab = () => {
              </div>
              
              <div 
-               onClick={() => toggle(item.id as any)}
+               onClick={() => toggle(item.id as keyof Preferences)}
                style={{
                  width: '50px',
                  height: '26px',
@@ -73,11 +118,11 @@ export const SettingsTab = () => {
       </div>
 
       <div style={{ padding: '24px', textAlign: 'center' }}>
-         <button className="btn-primary" style={{ padding: '12px 32px' }}>Save All Changes</button>
+         <button className="btn-primary" style={{ padding: '12px 32px' }} onClick={handleSave}>Save All Changes</button>
          <button 
           className="btn-ghost" 
           style={{ padding: '12px 32px', marginLeft: '16px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)' }}
-          onClick={() => { if(confirm('Clear all local data?')) alert('Data cleared!'); }}
+          onClick={handleReset}
          >
            Reset All Factory Settings
          </button>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { RequestRecord } from '../types';
 import { generateCurl } from '../utils/curl';
+import { useModal } from '../context/ModalContext';
 
 type ResourceTypeFilter = 'all' | 'fetch' | 'js' | 'css' | 'img' | 'media' | 'other';
 
@@ -27,39 +28,42 @@ const getStatusColor = (s: number) => {
 };
 
 export const NetworkTab = ({ records, onSelect, selectedId, onTry }: { records: RequestRecord[]; onSelect: (r: RequestRecord) => void; selectedId: string | null; onTry?: (r: RequestRecord) => void }) => {
+  const { popConfirm } = useModal();
   const [filter, setFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<ResourceTypeFilter>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const filtered = records.filter(r => {
-    const searchVal = filter.toLowerCase();
-    const matchesSearch = !searchVal || 
-      r.url.toLowerCase().includes(searchVal) || 
-      r.method.toLowerCase().includes(searchVal) ||
-      (r.resourceType && r.resourceType.toLowerCase().includes(searchVal));
+  const filtered = React.useMemo(() => {
+    return records.filter(r => {
+      const searchVal = filter.toLowerCase();
+      const matchesSearch = !searchVal || 
+        r.url.toLowerCase().includes(searchVal) || 
+        r.method.toLowerCase().includes(searchVal) ||
+        (r.resourceType && r.resourceType.toLowerCase().includes(searchVal));
 
-    if (!matchesSearch) return false;
-    if (typeFilter === 'all') return true;
-    
-    const type = (r.resourceType || 'other').toLowerCase();
-    
-    switch(typeFilter) {
-      case 'fetch': 
-        return type === 'xmlhttprequest' || type === 'fetch' || type === 'ping' || type === 'websocket';
-      case 'js': 
-        return type === 'script';
-      case 'css': 
-        return type === 'stylesheet';
-      case 'img': 
-        return type === 'image' || type === 'font'; // Include fonts in images or elsewhere? Keep in images for now or 'other'
-      case 'media': 
-        return type === 'media' || type === 'object';
-      case 'other': 
-        return type === 'other' || type === 'main_frame' || type === 'sub_frame' || type === 'csp_report';
-      default: 
-        return true;
-    }
-  });
+      if (!matchesSearch) return false;
+      if (typeFilter === 'all') return true;
+      
+      const type = (r.resourceType || 'other').toLowerCase();
+      
+      switch(typeFilter) {
+        case 'fetch': 
+          return type === 'xmlhttprequest' || type === 'fetch' || type === 'ping' || type === 'websocket';
+        case 'js': 
+          return type === 'script';
+        case 'css': 
+          return type === 'stylesheet';
+        case 'img': 
+          return type === 'image' || type === 'font';
+        case 'media': 
+          return type === 'media' || type === 'object';
+        case 'other': 
+          return type === 'other' || type === 'main_frame' || type === 'sub_frame' || type === 'csp_report';
+        default: 
+          return true;
+      }
+    });
+  }, [records, filter, typeFilter]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -121,7 +125,7 @@ export const NetworkTab = ({ records, onSelect, selectedId, onTry }: { records: 
               >✕</button>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
             {filterTabs.map(tab => (
               <button
                 key={tab.id}
@@ -135,6 +139,29 @@ export const NetworkTab = ({ records, onSelect, selectedId, onTry }: { records: 
                 {tab.label}
               </button>
             ))}
+            <div style={{ flex: 1 }} />
+            {records.length > 0 && (
+              <button
+                onClick={() => {
+                  popConfirm({
+                    title: "Clear History?",
+                    message: "Are you sure you want to clear all network records for this origin? This action cannot be undone.",
+                    type: 'danger',
+                    confirmLabel: 'Clear All',
+                    onConfirm: () => {
+                      chrome.runtime.sendMessage({ type: 'CLEAR_SITE_RECORDS', origin: records[0].origin });
+                      window.location.reload();
+                    }
+                  });
+                }}
+                style={{
+                  padding: '4px 8px', borderRadius: '4px', fontSize: '9px', fontWeight: 800, border: '1px solid rgba(239, 68, 68, 0.3)', 
+                  background: 'transparent', color: '#ef4444', cursor: 'pointer'
+                }}
+              >
+                CLEAR
+              </button>
+            )}
           </div>
         </div>
 
@@ -175,11 +202,11 @@ export const NetworkTab = ({ records, onSelect, selectedId, onTry }: { records: 
                           transition: 'background 0.2s'
                         }}
                       >
-                        <td style={{ padding: '10px 12px', fontWeight: 800, color: getMethodColor(r.method) }}>{r.method}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 800, color: getStatusColor(r.responseStatusCode) }}>{r.responseStatusCode}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 800, color: getMethodColor(r.method), width: '60px' }}>{r.method}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 800, color: getStatusColor(r.responseStatusCode), width: '50px' }}>{r.responseStatusCode}</td>
                         <td style={{ 
-                          padding: '10px 12px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', 
-                          whiteSpace: 'nowrap', color: isExpanded ? '#fff' : '#64748b'
+                          padding: '10px 12px', color: isExpanded ? '#fff' : '#cbd5e1', fontStyle: 'italic',
+                          maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
                         }} title={r.url}>
                           {path}
                         </td>
