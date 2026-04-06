@@ -3,7 +3,7 @@
 
 import { detectPII } from '../piiDetector';
 import { computeRiskScore } from '../riskScorer';
-import { saveRecord, pruneOldRecords } from '../storage';
+import { saveRecord, pruneOldRecords, getRecordsByOrigin, getAllOriginSummaries } from '../storage';
 import { getPreferences, updateSiteRiskScore } from '../preferences';
 import { shouldProcessRequest } from './filterLogic';
 import type { CapturedRequest, Header, RequestRecord } from '../types';
@@ -68,13 +68,14 @@ function decodeRawBody(
 // Listener: onBeforeRequest
 // ---------------------------------------------------------------------------
 
-function onBeforeRequest(details: chrome.webRequest.WebRequestBodyDetails): void {
+function onBeforeRequest(details: chrome.webRequest.OnBeforeRequestDetails): chrome.webRequest.BlockingResponse | undefined {
   try {
     const entry: Partial<CapturedRequest> = {
       requestId: details.requestId,
       url: details.url,
       method: details.method,
       tabId: details.tabId,
+      initiator: details.initiator,
       timestampMs: Date.now(),
       truncated: false,
       bodyUnavailable: false,
@@ -105,13 +106,14 @@ function onBeforeRequest(details: chrome.webRequest.WebRequestBodyDetails): void
   } catch (err) {
     console.error('[background] onBeforeRequest error:', err);
   }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
 // Listener: onSendHeaders
 // ---------------------------------------------------------------------------
 
-function onSendHeaders(details: chrome.webRequest.WebRequestHeadersDetails): void {
+function onSendHeaders(details: chrome.webRequest.OnSendHeadersDetails): void {
   try {
     const entry = inFlight.get(details.requestId);
     if (!entry) return;
@@ -125,7 +127,7 @@ function onSendHeaders(details: chrome.webRequest.WebRequestHeadersDetails): voi
 // Listener: onHeadersReceived
 // ---------------------------------------------------------------------------
 
-function onHeadersReceived(details: chrome.webRequest.WebResponseHeadersDetails): void {
+function onHeadersReceived(details: chrome.webRequest.OnHeadersReceivedDetails): chrome.webRequest.BlockingResponse | undefined {
   try {
     const entry = inFlight.get(details.requestId);
     if (!entry) return;
@@ -133,83 +135,97 @@ function onHeadersReceived(details: chrome.webRequest.WebResponseHeadersDetails)
   } catch (err) {
     console.error('[background] onHeadersReceived error:', err);
   }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
 // Listener: onCompleted
 // ---------------------------------------------------------------------------
 
-async function onCompleted(details: chrome.webRequest.WebResponseCacheDetails): Promise<void> {
-  try {
-    const entry = inFlight.get(details.requestId);
-    if (!entry) return;
-    inFlight.delete(details.requestId);
-
-    // Assemble full CapturedRequest
-    const captured: CapturedRequest = {
-      requestId: details.requestId,
-      url: entry.url ?? details.url,
-      method: entry.method ?? details.method,
-      tabId: entry.tabId ?? details.tabId,
-      timestampMs: entry.timestampMs ?? Date.now(),
-      requestHeaders: entry.requestHeaders ?? [],
-      responseHeaders: (details.responseHeaders ?? entry.responseHeaders ?? []) as Header[],
-      requestBody: entry.requestBody ?? null,
-      statusCode: details.statusCode,
-      truncated: entry.truncated ?? false,
-      bodyUnavailable: entry.bodyUnavailable ?? false,
-      decodeError: entry.decodeError ?? false,
-    };
-
-    // Check preferences — skip if monitoring disabled globally or for this origin
-    const prefs = await getPreferences();
-
-    let origin: string;
+function onCompleted(details: chrome.webRequest.OnCompletedDetails): void {
+  // Wrap the async processing in a fire-and-forget async wrapper.
+  // We can't await it here because the webRequest listener must return synchronously.
+  (async () => {
     try {
-      origin = new URL(captured.url).origin;
-    } catch {
-      return; // malformed URL — skip
+      const entry = inFlight.get(details.requestId);
+      // We still process even if no entry (could happen if onBeforeRequest was missed somehow)
+      const data = (entry || {}) as any;
+      inFlight.delete(details.requestId);
+
+      // Assemble full CapturedRequest
+      const captured: CapturedRequest & { resourceType: string } = {
+        requestId: details.requestId,
+        url: data.url ?? details.url,
+        method: data.method ?? details.method,
+        tabId: data.tabId ?? details.tabId,
+        timestampMs: data.timestampMs ?? Date.now(),
+        requestHeaders: data.requestHeaders ?? [],
+        responseHeaders: (details.responseHeaders ?? data.responseHeaders ?? []) as Header[],
+        requestBody: data.requestBody ?? null,
+        statusCode: details.statusCode,
+        truncated: data.truncated ?? false,
+        bodyUnavailable: data.bodyUnavailable ?? false,
+        decodeError: data.decodeError ?? false,
+        resourceType: details.type,
+        initiator: details.initiator || data.initiator,
+      };
+
+      // Check preferences — skip if monitoring disabled globally or for this origin
+      const prefs = await getPreferences();
+
+      let origin: string;
+      try {
+        // Use initiator as the primary origin for per-site dashboard grouping.
+        // This ensures cross-origin requests made by a site are shown in that site's dashboard.
+        // Fallback to request URL's origin if no initiator is present (e.g. top-level nav).
+        const initiatorOrigin = captured.initiator;
+        if (initiatorOrigin && initiatorOrigin !== 'null' && initiatorOrigin.startsWith('http')) {
+           origin = initiatorOrigin;
+        } else {
+           origin = new URL(captured.url).origin;
+        }
+      } catch {
+        return;
+      }
+
+      if (!shouldProcessRequest(origin, prefs)) return;
+
+      // Analysis (Generic PII / Risk calculation)
+      const piiFindings = detectPII(captured.requestBody ?? '', captured.requestHeaders);
+      const riskContribution = computeRiskScore(piiFindings);
+
+      const record: RequestRecord = {
+        id: crypto.randomUUID(),
+        origin,
+        url: captured.url,
+        method: captured.method,
+        requestHeaders: captured.requestHeaders,
+        responseHeaders: captured.responseHeaders,
+        requestBody: captured.requestBody,
+        responseStatusCode: captured.statusCode,
+        timestampMs: captured.timestampMs,
+        piiFindings,
+        riskContribution,
+        truncated: captured.truncated,
+        bodyUnavailable: captured.bodyUnavailable,
+        decodeError: captured.decodeError,
+        resourceType: captured.resourceType,
+        initiator: captured.initiator,
+        tabId: captured.tabId,
+      };
+
+      // Persist
+      await saveRecord(record);
+
+      // Update site risk score
+      await updateSiteRiskScore(origin, riskContribution);
+
+      // Notify popup/dashboard
+      chrome.runtime.sendMessage({ type: 'NEW_REQUEST', record }).catch(() => {});
+    } catch (err) {
+      console.error('[background] onCompleted processing error:', err);
     }
-
-    if (!shouldProcessRequest(origin, prefs)) return;
-
-    // PII detection
-    const piiFindings = detectPII(captured.requestBody ?? '', captured.requestHeaders);
-
-    // Risk score
-    const riskContribution = computeRiskScore(piiFindings);
-
-    // Build RequestRecord
-    const record: RequestRecord = {
-      id: crypto.randomUUID(),
-      origin,
-      url: captured.url,
-      method: captured.method,
-      requestHeaders: captured.requestHeaders,
-      responseHeaders: captured.responseHeaders,
-      requestBody: captured.requestBody,
-      responseStatusCode: captured.statusCode,
-      timestampMs: captured.timestampMs,
-      piiFindings,
-      riskContribution,
-      truncated: captured.truncated,
-      bodyUnavailable: captured.bodyUnavailable,
-      decodeError: captured.decodeError,
-    };
-
-    // Persist
-    await saveRecord(record);
-
-    // Update site risk score
-    await updateSiteRiskScore(origin, riskContribution);
-
-    // Notify popup/dashboard — fire and forget, ignore if not open
-    chrome.runtime.sendMessage({ type: 'NEW_REQUEST', record }).catch(() => {
-      // popup/dashboard not open — expected, ignore
-    });
-  } catch (err) {
-    console.error('[background] onCompleted error:', err);
-  }
+  })();
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +256,17 @@ if (chrome.webRequest) {
     { urls: ['<all_urls>'] },
     ['responseHeaders'],
   );
+  
+  // Listen for redirects to update in-flight information
+  chrome.webRequest.onBeforeRedirect.addListener(
+    (details) => {
+      const entry = inFlight.get(details.requestId);
+      if (entry) {
+        entry.url = details.redirectUrl;
+      }
+    },
+    { urls: ['<all_urls>'] }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -250,9 +277,36 @@ pruneOldRecords().catch((err) => console.error('[background] pruneOldRecords err
 
 if (chrome.alarms) {
   chrome.alarms.create('daily-prune', { periodInMinutes: 24 * 60 });
-  chrome.alarms.onAlarm.addListener((alarm) => {
+  chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
     if (alarm.name === 'daily-prune') {
       pruneOldRecords().catch((err) => console.error('[background] daily prune error:', err));
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Proxy handlers for In-Page Widget
+// ---------------------------------------------------------------------------
+
+chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
+  if (message.type === 'GET_RECORDS_PROXY') {
+    const { origin } = message;
+    getRecordsByOrigin(origin).then((records) => {
+      sendResponse({ records });
+    }).catch((err) => {
+      console.error('[background] Proxy storage error:', err);
+      sendResponse({ records: [] });
+    });
+    return true; // Keep channel open for async response
+  }
+
+  if (message.type === 'GET_ALL_RECORDS_PROXY') {
+    getAllOriginSummaries().then((summaries) => {
+      sendResponse({ summaries });
+    }).catch((err) => {
+      console.error('[background] Proxy summarization error:', err);
+      sendResponse({ summaries: [] });
+    });
+    return true;
+  }
+});

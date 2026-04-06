@@ -51,8 +51,8 @@ const requestRecordArb = fc.record({
   origin: fc.webUrl({ validSchemes: ['https'] }),
   url: fc.webUrl({ validSchemes: ['https'] }),
   method: fc.constantFrom('GET', 'POST', 'PUT', 'DELETE', 'PATCH'),
-  requestHeaders: fc.constant([]),
-  responseHeaders: fc.constant([]),
+  requestHeaders: fc.constant([] as any[]),
+  responseHeaders: fc.constant([] as any[]),
   requestBody: fc.constant(null),
   responseStatusCode: fc.integer({ min: 100, max: 599 }),
   timestampMs: fc.integer({ min: 0, max: Number.MAX_SAFE_INTEGER }),
@@ -98,7 +98,7 @@ describe('Property 10: Storage eviction preserves recency', () => {
         fc.property(
           evictionScenarioArb,
           ({ records, thresholdCount, targetCount }) => {
-            const { remaining, deleted } = simulateEviction(records, thresholdCount + 1, targetCount);
+            const { remaining, deleted } = simulateEviction(records as RequestRecord[], thresholdCount + 1, targetCount);
 
             // If nothing was deleted, the invariant holds trivially
             if (deleted.length === 0) return;
@@ -124,7 +124,7 @@ describe('Property 10: Storage eviction preserves recency', () => {
         fc.property(
           evictionScenarioArb,
           ({ records, thresholdCount, targetCount }) => {
-            const { deleted } = simulateEviction(records, thresholdCount + 1, targetCount);
+            const { deleted } = simulateEviction(records as RequestRecord[], thresholdCount + 1, targetCount);
 
             if (deleted.length === 0) return;
 
@@ -156,7 +156,7 @@ describe('Property 10: Storage eviction preserves recency', () => {
           evictionScenarioArb,
           ({ records, thresholdCount, targetCount }) => {
             const initialCount = thresholdCount + 1;
-            const { remaining, deleted } = simulateEviction(records, initialCount, targetCount);
+            const { deleted } = simulateEviction(records as RequestRecord[], initialCount, targetCount);
 
             // After eviction, remaining count should be >= targetCount
             // (we stop as soon as we reach the target, not before)

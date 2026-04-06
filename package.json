@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.content.config.ts",
     "test": "vitest --run",
     "test:watch": "vitest"
   },
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.1.39",
+    "@types/node": "^25.5.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "^10.0.0",

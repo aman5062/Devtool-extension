@@ -34,7 +34,6 @@ function setupDownloadCapture(): { getCapturedBlob: () => Blob | null; getCaptur
 
   const fakeAnchor = {
     href: '',
-    download: '',
     style: { display: '' },
     click: vi.fn(),
     set download(v: string) { capturedFilename = v; },

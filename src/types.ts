@@ -19,6 +19,7 @@ export interface CapturedRequest {
   truncated: boolean;
   bodyUnavailable: boolean;
   decodeError: boolean;
+  initiator?: string;
 }
 
 export type PIIType =
@@ -59,6 +60,9 @@ export interface RequestRecord {
   truncated: boolean;
   bodyUnavailable: boolean;
   decodeError: boolean;
+  resourceType?: string;
+  initiator?: string;
+  tabId?: number;
 }
 
 export interface Preferences {

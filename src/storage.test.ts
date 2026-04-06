@@ -37,7 +37,7 @@ function makeCursor(items: StoreRecord[]): MockCursor | null {
   if (items.length === 0) return null;
   // Work on a snapshot; deletions mutate the outer `records` array
   const snapshot = [...items];
-  let idx = 0;
+// idx was unused
 
   function cursorAt(i: number): MockCursor | null {
     if (i >= snapshot.length) return null;
